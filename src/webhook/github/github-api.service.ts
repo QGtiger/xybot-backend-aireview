@@ -1,7 +1,7 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { Octokit } from '@octokit/rest';
-import { CommitInfo, FileChange } from '../../common/interfaces/commit.interface';
+import {  FileChange } from '../../common/interfaces/commit.interface';
 
 @Injectable()
 export class GitHubApiService {
