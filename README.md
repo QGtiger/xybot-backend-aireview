@@ -1,4 +1,4 @@
-1
+12
 # AI Review System
 
 一个基于 NestJS 的 AI 代码审查系统，支持 GitHub 和 GitLab。当开发者提交代码时，系统会自动使用 DeepSeek API 对代码进行 AI 分析，从代码复杂度、可行性和安全性等维度进行评估，并自动在 commit 上添加评论。
