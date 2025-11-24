@@ -1,9 +1,9 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { GitHubWebhookService } from './github/github-webhook.service';
+import { GitHubApiService } from './github/github-api.service';
 import { GitLabWebhookService } from './gitlab/gitlab-webhook.service';
 import { AnalysisService } from '../analysis/analysis.service';
 import { CommentService } from '../comment/comment.service';
-import { CommitInfo } from '../common/interfaces/commit.interface';
 
 @Injectable()
 export class WebhookService {
@@ -11,6 +11,7 @@ export class WebhookService {
 
   constructor(
     private readonly githubWebhookService: GitHubWebhookService,
+    private readonly githubApiService: GitHubApiService,
     private readonly gitlabWebhookService: GitLabWebhookService,
     private readonly analysisService: AnalysisService,
     private readonly commentService: CommentService,
@@ -32,20 +33,44 @@ export class WebhookService {
         let diff = '';
 
         if (platform === 'github') {
-          // GitHub push 事件的 payload 在顶层有 commits 数组
-          // 但文件变更信息需要从 payload 的其他字段获取
-          // 注意：GitHub push 事件可能不包含完整的文件变更列表
-          // 实际应用中可能需要调用 GitHub API 获取 commit diff
-          const commitData = payload.commits?.find((c: any) => c.id === commit.sha);
-          if (commitData) {
-            // GitHub payload 可能包含 added, removed, modified 数组
-            const allFiles = [
-              ...(payload.added || []).map((f: string) => ({ filename: f, status: 'added' })),
-              ...(payload.modified || []).map((f: string) => ({ filename: f, status: 'modified' })),
-              ...(payload.removed || []).map((f: string) => ({ filename: f, status: 'removed' })),
-            ];
-            files = this.githubWebhookService.parseFileChanges(allFiles);
-            diff = this.buildDiffFromFiles(files);
+          // GitHub webhook payload 只包含文件名，不包含实际的 diff
+          // 需要调用 GitHub API 获取完整的 commit diff
+          try {
+            const [owner, repo] = parsed.repository.fullName.split('/');
+            const commitDiff = await this.githubApiService.getCommitDiff(
+              owner,
+              repo,
+              commit.sha,
+            );
+            diff = commitDiff.diff;
+            files = commitDiff.files;
+            this.logger.log(
+              `Retrieved diff for commit ${commit.sha}, ${files.length} files changed`,
+            );
+          } catch (error: any) {
+            this.logger.warn(
+              `Failed to get commit diff from API for ${commit.sha}, using fallback: ${error.message}`,
+            );
+            // 降级方案：从 payload 中提取文件名
+            const commitData = payload.commits?.find((c: any) => c.id === commit.sha);
+            if (commitData) {
+              const allFiles = [
+                ...(commitData.added || []).map((f: string) => ({
+                  filename: f,
+                  status: 'added',
+                })),
+                ...(commitData.modified || []).map((f: string) => ({
+                  filename: f,
+                  status: 'modified',
+                })),
+                ...(commitData.removed || []).map((f: string) => ({
+                  filename: f,
+                  status: 'removed',
+                })),
+              ];
+              files = this.githubWebhookService.parseFileChanges(allFiles);
+              diff = this.buildDiffFromFiles(files);
+            }
           }
         } else {
           // GitLab
