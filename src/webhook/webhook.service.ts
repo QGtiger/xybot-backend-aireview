@@ -2,6 +2,7 @@ import { Injectable, Logger } from '@nestjs/common';
 import { GitHubWebhookService } from './github/github-webhook.service';
 import { GitHubApiService } from './github/github-api.service';
 import { GitLabWebhookService } from './gitlab/gitlab-webhook.service';
+import { GitLabApiService } from './gitlab/gitlab-api.service';
 import { AnalysisService } from '../analysis/analysis.service';
 import { CommentService } from '../comment/comment.service';
 
@@ -13,6 +14,7 @@ export class WebhookService {
     private readonly githubWebhookService: GitHubWebhookService,
     private readonly githubApiService: GitHubApiService,
     private readonly gitlabWebhookService: GitLabWebhookService,
+    private readonly gitlabApiService: GitLabApiService,
     private readonly analysisService: AnalysisService,
     private readonly commentService: CommentService,
   ) {}
@@ -73,11 +75,28 @@ export class WebhookService {
             }
           }
         } else {
-          // GitLab
-          const commitData = payload.commits?.find((c: any) => c.id === commit.sha);
-          if (commitData && commitData.modified) {
-            files = this.gitlabWebhookService.parseFileChanges(commitData.modified);
-            diff = this.buildDiffFromFiles(files);
+          // GitLab: 调用 API 获取完整的 commit diff
+          try {
+            const projectId = parsed.repository.fullName;
+            const commitDiff = await this.gitlabApiService.getCommitDiff(
+              projectId,
+              commit.sha,
+            );
+            diff = commitDiff.diff;
+            files = commitDiff.files;
+            this.logger.log(
+              `Retrieved diff for commit ${commit.sha}, ${files.length} files changed`,
+            );
+          } catch (error: any) {
+            this.logger.warn(
+              `Failed to get commit diff from API for ${commit.sha}, using fallback: ${error.message}`,
+            );
+            // 降级方案：从 payload 中提取文件信息
+            const commitData = payload.commits?.find((c: any) => c.id === commit.sha);
+            if (commitData && commitData.modified) {
+              files = this.gitlabWebhookService.parseFileChanges(commitData.modified);
+              diff = this.buildDiffFromFiles(files);
+            }
           }
         }
 
